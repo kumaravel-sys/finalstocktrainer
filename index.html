@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VSE Stock Trainer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; background: #111; color: #eee; margin: 0; padding: 0; }
+    header { background: #222; padding: 1rem; text-align: center; font-size: 1.5rem; }
+    #app { padding: 1rem; }
+    .card { background: #1e1e1e; padding: 1rem; margin: 1rem 0; border-radius: 8px; }
+    input, button, select { padding: 0.5rem; margin: 0.3rem 0; border-radius: 5px; border: none; }
+    button { background: #4caf50; color: white; cursor: pointer; }
+    button:hover { background: #45a049; }
+    .hidden { display: none; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border: 1px solid #444; padding: 8px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>📈 VSE Stock Trainer</header>
+  <div id="app">
+
+    <!-- Login Section -->
+    <div id="loginSection" class="card">
+      <h2>Login</h2>
+      <input type="text" id="email" placeholder="Email (Admin only)" /><br>
+      <input type="password" id="password" placeholder="Password" /><br>
+      <button onclick="login()">Login</button>
+      <p id="loginMsg"></p>
+    </div>
+
+    <!-- User Section -->
+    <div id="userSection" class="card hidden">
+      <h2>Welcome, Trader!</h2>
+      <p>Balance: $<span id="balance">100000</span></p>
+
+      <h3>Buy / Sell Stocks</h3>
+      <select id="stockSelect"></select><br>
+      <input type="number" id="quantity" placeholder="Quantity" /><br>
+      <button onclick="buyStock()">Buy</button>
+      <button onclick="sellStock()">Sell</button>
+
+      <h3>Portfolio</h3>
+      <table id="portfolioTable">
+        <tr><th>Stock</th><th>Qty</th><th>Value</th></tr>
+      </table>
+    </div>
+
+    <!-- Admin Section -->
+    <div id="adminSection" class="card hidden">
+      <h2>Admin Panel</h2>
+      <button onclick="resetBalances()">Reset All User Balances</button>
+      <h3>All Users</h3>
+      <div id="allUsers"></div>
+    </div>
+
+  </div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+  <script>
+    // ===== Firebase Config =====
+    const firebaseConfig = {
+      // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBK25v0tOV6WpctJ0AUPbaIcGOx7QYWGAQ",
+  authDomain: "vsestocktrainer.firebaseapp.com",
+  projectId: "vsestocktrainer",
+  storageBucket: "vsestocktrainer.firebasestorage.app",
+  messagingSenderId: "350972484403",
+  appId: "1:350972484403:web:9539968ad000c716257c46"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ===== Variables =====
+    const finnhubApiKey = "d3bm7n1r01qqg7bv706gd3bm7n1r01qqg7bv7070";
+    const stockList = ["AAPL", "MSFT", "TSLA", "AMZN", "GOOGL", "META"];
+    let currentUser = null;
+    let balance = 100000;
+    let portfolio = {};
+
+    // ===== UI Elements =====
+    const loginSection = document.getElementById("loginSection");
+    const userSection = document.getElementById("userSection");
+    const adminSection = document.getElementById("adminSection");
+    const balanceEl = document.getElementById("balance");
+    const stockSelect = document.getElementById("stockSelect");
+    const portfolioTable = document.getElementById("portfolioTable");
+
+    stockList.forEach(s => {
+      let opt = document.createElement("option");
+      opt.value = s; opt.innerText = s;
+      stockSelect.appendChild(opt);
+    });
+
+    // ===== Login Function =====
+    function login() {
+      const email = document.getElementById("email").value.trim();
+      const pass = document.getElementById("password").value.trim();
+
+      if (email === "admin6@vse.com" && pass === "adminvse2k25") {
+        loginSection.classList.add("hidden");
+        adminSection.classList.remove("hidden");
+        loadAllUsers();
+        return;
+      }
+      if (pass === "vse2k25") {
+        currentUser = email || "guest" + Math.floor(Math.random() * 1000);
+        initUser(currentUser);
+        loginSection.classList.add("hidden");
+        userSection.classList.remove("hidden");
+        return;
+      }
+      document.getElementById("loginMsg").innerText = "Invalid login!";
+    }
+
+    async function initUser(uid) {
+      const docRef = db.collection("users").doc(uid);
+      const docSnap = await docRef.get();
+      if (docSnap.exists) {
+        balance = docSnap.data().balance;
+        portfolio = docSnap.data().portfolio || {};
+      } else {
+        await docRef.set({ balance: 100000, portfolio: {} });
+        balance = 100000;
+        portfolio = {};
+      }
+      updateUI();
+    }
+
+    // ===== Buy / Sell =====
+    async function buyStock() {
+      let stock = stockSelect.value;
+      let qty = parseInt(document.getElementById("quantity").value);
+      if (!qty || qty <= 0) return;
+
+      let price = await getStockPrice(stock);
+      let cost = price * qty;
+
+      if (balance >= cost) {
+        balance -= cost;
+        portfolio[stock] = (portfolio[stock] || 0) + qty;
+        saveUser();
+        updateUI();
+      } else {
+        alert("Not enough balance!");
+      }
+    }
+
+    async function sellStock() {
+      let stock = stockSelect.value;
+      let qty = parseInt(document.getElementById("quantity").value);
+      if (!qty || qty <= 0 || !portfolio[stock]) return;
+
+      if (portfolio[stock] >= qty) {
+        let price = await getStockPrice(stock);
+        let income = price * qty;
+        balance += income;
+        portfolio[stock] -= qty;
+        if (portfolio[stock] === 0) delete portfolio[stock];
+        saveUser();
+        updateUI();
+      } else {
+        alert("Not enough shares to sell!");
+      }
+    }
+
+    // ===== Fetch Stock Price =====
+    async function getStockPrice(symbol) {
+      try {
+        let url = `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubApiKey}`;
+        let res = await fetch(url);
+        let data = await res.json();
+        return data.c || 0;
+      } catch (e) {
+        console.error("Error fetching stock price", e);
+        return 0;
+      }
+    }
+
+    // ===== Update UI =====
+    async function updateUI() {
+      balanceEl.innerText = balance.toFixed(2);
+      portfolioTable.innerHTML = "<tr><th>Stock</th><th>Qty</th><th>Value</th></tr>";
+      for (let stock in portfolio) {
+        let qty = portfolio[stock];
+        let price = await getStockPrice(stock);
+        let row = `<tr><td>${stock}</td><td>${qty}</td><td>$${(qty * price).toFixed(2)}</td></tr>`;
+        portfolioTable.innerHTML += row;
+      }
+    }
+
+    // ===== Save User =====
+    async function saveUser() {
+      await db.collection("users").doc(currentUser).set({
+        balance, portfolio
+      });
+    }
+
+    // ===== Admin Functions =====
+    async function loadAllUsers() {
+      let snapshot = await db.collection("users").get();
+      let html = "<table><tr><th>User</th><th>Balance</th></tr>";
+      snapshot.forEach(doc => {
+        html += `<tr><td>${doc.id}</td><td>$${doc.data().balance}</td></tr>`;
+      });
+      html += "</table>";
+      document.getElementById("allUsers").innerHTML = html;
+    }
+
+    async function resetBalances() {
+      let snapshot = await db.collection("users").get();
+      snapshot.forEach(doc => {
+        db.collection("users").doc(doc.id).update({ balance: 100000, portfolio: {} });
+      });
+      alert("All balances reset!");
+      loadAllUsers();
+    }
+  </script>
+</body>
+</html>
